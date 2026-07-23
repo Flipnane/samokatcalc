@@ -3,87 +3,153 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Калькулятор стоимости</title>
+    <title>Калькулятор стоимости доставки</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
-<div class="calculator-card">
-    <div class="header">
-        <h2 id="lang-title">Расчет стоимости</h2>
-        <div class="header-controls">
-            <!-- Выбор языка -->
-            <select id="langSelect" class="lang-select">
-                <option value="ru">RU</option>
-                <option value="en">EN</option>
-                <option value="fr">FR</option>
-                <option value="tr">TR</option>
-                <option value="tg">TG</option>
-                <option value="kk">KK</option>
-                <option value="be">BE</option>
-                <option value="ky">KY</option>
-                <option value="uz">UZ</option>
-                <option value="hy">HY</option>
-            </select>
-            <!-- Ползунок темы -->
-            <label class="theme-switch" aria-label="Переключить тему">
-                <input type="checkbox" id="themeToggle">
-                <span class="slider">
-                    <span class="icon sun">☀️</span>
-                    <span class="icon moon">🌙</span>
-                </span>
-            </label>
-        </div>
-    </div>
-
-    <div class="tabs">
-        <button class="tab active" id="tabExact">Точный (стопы)</button>
-        <button class="tab" id="tabApprox">Примерный (заказы)</button>
-    </div>
-
-    <form id="calcForm">
-        <div class="input-group">
-            <label for="hours" id="lang-hours-lbl">Количество часов (100 ₽/ч)</label>
-            <input type="number" id="hours" min="0" step="any" placeholder="0" inputmode="decimal">
-        </div>
-
-        <!-- Режим 1: Стопы -->
-        <div id="exactFields" class="fade-block">
-            <div class="input-group">
-                <label for="stops15" id="lang-stops15-lbl">Стопы 15 мин (50 ₽/шт)</label>
-                <input type="number" id="stops15" min="0" value="0" inputmode="numeric">
-            </div>
-            <div class="input-group">
-                <label for="stops30" id="lang-stops30-lbl">Стопы 30 мин (100 ₽/шт)</label>
-                <input type="number" id="stops30" min="0" value="0" inputmode="numeric">
+    <div class="calculator-card">
+        <!-- Шапка -->
+        <div class="header">
+            <h2 id="lang-title">Расчет стоимости</h2>
+            <div class="header-controls">
+                <!-- Кастомный выбор языка с флагами -->
+                <div class="custom-dropdown" id="langDropdown">
+                    <div class="dropdown-trigger">
+                        <span class="flag-icon">🇷🇺</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </div>
+                    <div class="dropdown-menu">
+                        <div class="dropdown-item" data-value="ru">🇷🇺 Русский</div>
+                        <div class="dropdown-item" data-value="en">🇬🇧 English</div>
+                        <div class="dropdown-item" data-value="fr">🇫🇷 Français</div>
+                        <div class="dropdown-item" data-value="tr">🇹🇷 Türkçe</div>
+                        <div class="dropdown-item" data-value="tg">🇹🇯 Тоҷикӣ</div>
+                        <div class="dropdown-item" data-value="kk">🇰🇿 Қазақша</div>
+                        <div class="dropdown-item" data-value="be">🇧🇾 Беларуская</div>
+                        <div class="dropdown-item" data-value="ky">🇰🇬 Кыргызча</div>
+                        <div class="dropdown-item" data-value="uz">🇺🇿 Oʻzbekcha</div>
+                        <div class="dropdown-item" data-value="hy">🇦🇲 Հայերեն</div>
+                    </div>
+                </div>
+                <!-- Переключатель темы -->
+                <label class="theme-switch" aria-label="Переключить тему">
+                    <input type="checkbox" id="themeToggle">
+                    <span class="slider">
+                        <span class="icon sun">☀️</span>
+                        <span class="icon moon">🌙</span>
+                    </span>
+                </label>
             </div>
         </div>
 
-        <!-- Режим 2: Заказы -->
-        <div id="approxFields" class="fade-block hidden">
-            <div class="input-group">
-                <label for="orders" id="lang-orders-lbl">Количество заказов (50 ₽/шт)</label>
-                <input type="number" id="orders" min="0" value="0" inputmode="numeric">
+        <!-- Выбор тарифов -->
+        <div class="company-types">
+            <button id="typePartner" class="company-btn active">🚀 Партнер</button>
+            <button id="typeSber" class="company-btn">🏦 Сбер</button>
+            <button id="typeOther" class="company-btn">⚙️ Другое</button>
+        </div>
+
+        <!-- География (для Партнер и Сбер) -->
+        <div id="geoGroup" class="geo-group">
+            <div class="form-group">
+                <label id="lang-city-lbl">Город</label>
+                <div class="custom-dropdown" id="cityDropdown">
+                    <div class="dropdown-trigger">
+                        <span>Москва</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </div>
+                    <div class="dropdown-menu" id="cityMenuOptions"></div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label id="lang-transport-lbl">Тип доставки</label>
+                <div class="custom-dropdown" id="transportDropdown">
+                    <div class="dropdown-trigger">
+                        <span id="transportTriggerText">Вело</span>
+                        <span class="dropdown-arrow">▼</span>
+                    </div>
+                    <div class="dropdown-menu" id="transportMenuOptions"></div>
+                </div>
             </div>
         </div>
 
-        <label class="checkbox-group">
-            <input type="checkbox" id="extraPay">
-            <span id="lang-extrapay-lbl">Доплата (+10 ₽ за каждый стоп/заказ)</span>
-        </label>
+        <!-- Кастомные тарифы (для Другое) -->
+        <div id="customRateGroup" class="custom-rate-group hidden">
+            <div class="form-group full-width">
+                <label id="lang-custom-rate-lbl">Ставка за час (₽/ч)</label>
+                <input type="number" id="customRate" value="100" min="0" step="1">
+            </div>
+            <div id="customStopsFields">
+                <div class="form-group">
+                    <label id="lang-custom-s15-lbl">Цена за стоп 15 мин (₽)</label>
+                    <input type="number" id="customPriceS15" value="50" min="0" step="1">
+                </div>
+                <div class="form-group">
+                    <label id="lang-custom-s30-lbl">Цена за стоп 30 мин (₽)</label>
+                    <input type="number" id="customPriceS30" value="100" min="0" step="1">
+                </div>
+            </div>
+            <div class="form-group full-width hidden" id="customOrderField">
+                <label id="lang-custom-order-lbl">Цена за заказ (₽)</label>
+                <input type="number" id="customOrderPrice" value="50" min="0" step="1">
+            </div>
+        </div>
 
-        <button type="button" class="btn-clear" id="clearBtn">Сбросить значения</button>
-    </form>
+        <!-- Вкладки -->
+        <div class="tabs">
+            <button id="tabExact" class="tab active">Точный (стопы)</button>
+            <button id="tabApprox" class="tab">Примерный (заказы)</button>
+        </div>
 
-    <div class="result-box">
-        <div id="lang-result-lbl">Итоговая стоимость:</div>
-        <div class="counter-container" id="counterContainer">
-            <span class="currency-symbol">₽</span>
+        <!-- Форма -->
+        <form id="calcForm">
+            <div class="form-grid">
+                <div class="form-group full-width">
+                    <label id="lang-hours-lbl">Количество часов (100 ₽/ч)</label>
+                    <input type="number" id="hours" value="" min="0" step="0.5" placeholder="0">
+                </div>
+
+                <!-- Точный режим -->
+                <div id="exactFields">
+                    <div class="form-group">
+                        <label id="lang-stops15-lbl">Стопы 15 мин (50 ₽/шт)</label>
+                        <input type="number" id="stops15" value="0" min="0" step="1">
+                    </div>
+                    <div class="form-group">
+                        <label id="lang-stops30-lbl">Стопы 30 мин (100 ₽/шт)</label>
+                        <input type="number" id="stops30" value="0" min="0" step="1">
+                    </div>
+                </div>
+
+                <!-- Примерный режим -->
+                <div id="approxFields" class="hidden">
+                    <div class="form-group full-width">
+                        <label id="lang-orders-lbl">Количество заказов (50 ₽/шт)</label>
+                        <input type="number" id="orders" value="0" min="0" step="1">
+                    </div>
+                </div>
+
+                <div class="form-group full-width">
+                    <label class="checkbox-group">
+                        <input type="checkbox" id="extraPay">
+                        <span id="lang-extrapay-lbl">Доплата (+10 ₽ за каждый стоп/заказ)</span>
+                    </label>
+                </div>
+
+                <div class="form-group full-width" style="display:flex;justify-content:flex-end;">
+                    <button type="button" id="clearBtn" class="btn-clear">Сбросить значения</button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Результат -->
+        <div class="result-box">
+            <div id="lang-result-lbl">Итоговая стоимость:</div>
+            <div class="counter-container" id="counterContainer">
+                <span class="currency-symbol">₽</span>
+            </div>
         </div>
     </div>
-</div>
-
-<script src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
-
