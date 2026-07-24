@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let selectedCityKey = 'moscow';
     let selectedTransportKey = 'velo';
     let extraPayAmount = 10;
+    let calendarCompany = 'partner';
 
     // ============ ТАРИФЫ ПАРТНЕРОВ ============
     const samokatTariffs = {
@@ -384,8 +385,8 @@ document.addEventListener('DOMContentLoaded', () => {
         uz: "🇺🇿",
         hy: "🇦🇲"
     };
-
-    // ============ ФУНКЦИИ ============
+    // ============ ФУНКЦИИ КАЛЬКУЛЯТОРА ============
+    
     function getAvailableTransports(company, cityKey) {
         const tariffData = company === 'partner' ? samokatTariffs : sberTariffs;
         const cityData = tariffData[cityKey];
@@ -470,7 +471,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ============ ЯЗЫК ============
     function applyLanguage(lang) {
         currentLang = lang;
         const l = languages[lang];
@@ -530,7 +530,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // ============ КОМПАНИЯ ============
     function setCompanyMode(company) {
         currentCompany = company;
         typePartner.classList.remove('active');
@@ -570,7 +569,6 @@ document.addEventListener('DOMContentLoaded', () => {
         calculate();
     }
 
-    // ============ РЕЖИМ РАСЧЕТА ============
     function setCalculationMode(mode) {
         currentMode = mode;
         if (mode === 'exact') {
@@ -597,7 +595,6 @@ document.addEventListener('DOMContentLoaded', () => {
         calculate();
     }
 
-    // ============ ОДОМЕТР ============
     function updateOdometer(value) {
         const valueString = Math.round(value).toString();
         const currentBoxes = counterContainer.querySelectorAll('.digit-box');
@@ -632,7 +629,6 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ============ РАСЧЕТ ============
     function calculate() {
         const hoursRaw = document.getElementById('hours').value;
         const stops15Raw = document.getElementById('stops15').value;
@@ -692,8 +688,680 @@ document.addEventListener('DOMContentLoaded', () => {
 
         updateOdometer(total);
     }
+    // ============================================================
+    // ============ КАЛЕНДАРЬ ============
+    // ============================================================
 
+    let calendarState = {
+        currentMonth: new Date().getMonth(),
+        currentYear: new Date().getFullYear(),
+        selectedDate: null,
+        records: {}
+    };
+
+    function loadCalendarRecords() {
+        const saved = localStorage.getItem('calendarRecords');
+        if (saved) {
+            try {
+                calendarState.records = JSON.parse(saved);
+            } catch (e) {
+                calendarState.records = {};
+            }
+        } else {
+            calendarState.records = {};
+        }
+    }
+
+    function saveCalendarRecords() {
+        localStorage.setItem('calendarRecords', JSON.stringify(calendarState.records));
+    }
+
+    function getDayRecord(dateStr) {
+        return calendarState.records[dateStr] || null;
+    }
+
+    function getOrCreateDayRecord(dateStr) {
+        if (!calendarState.records[dateStr]) {
+            calendarState.records[dateStr] = {
+                shifts: [],
+                totalAmount: 0,
+                totalHours: 0,
+                avgPerHour: 0
+            };
+        }
+        return calendarState.records[dateStr];
+    }
+
+    function calculateShiftAmount(shift, cityKey, transportKey, company) {
+        let rate = 0, priceS15 = 0, priceS30 = 0;
+        
+        if (company === 'partner') {
+            const cityData = samokatTariffs[cityKey];
+            if (cityData && cityData[transportKey]) {
+                const data = cityData[transportKey];
+                rate = data.rate;
+                priceS15 = data.sla15;
+                priceS30 = data.sla30;
+            }
+        } else if (company === 'sber') {
+            const cityData = sberTariffs[cityKey];
+            if (cityData && cityData[transportKey]) {
+                const data = cityData[transportKey];
+                rate = data.rate;
+                priceS15 = data.sla15;
+                priceS30 = data.sla30;
+            }
+        } else {
+            rate = parseFloat(document.getElementById('customRate').value) || 0;
+            priceS15 = parseFloat(document.getElementById('customPriceS15').value) || 0;
+            priceS30 = parseFloat(document.getElementById('customPriceS30').value) || 0;
+        }
+        
+        const start = shift.startTime.split(':').map(Number);
+        const end = shift.endTime.split(':').map(Number);
+        let hours = end[0] - start[0] + (end[1] - start[1]) / 60;
+        if (hours < 0) hours += 24;
+        
+        let total = hours * rate;
+        total += (shift.stops15 || 0) * priceS15;
+        total += (shift.stops30 || 0) * priceS30;
+        if (shift.extraPay) {
+            const extraAmount = company === 'sber' ? 11 : 10;
+            total += ((shift.stops15 || 0) + (shift.stops30 || 0)) * extraAmount;
+        }
+        
+        return {
+            amount: Math.round(total),
+            hours: hours
+        };
+    }
+
+    function updateDayTotals(dateStr) {
+        const dayRecord = getDayRecord(dateStr);
+        if (!dayRecord || dayRecord.shifts.length === 0) {
+            delete calendarState.records[dateStr];
+            saveCalendarRecords();
+            return;
+        }
+        
+        let totalAmount = 0;
+        let totalHours = 0;
+        
+        dayRecord.shifts.forEach(shift => {
+            totalAmount += shift.amount || 0;
+            totalHours += shift.hours || 0;
+        });
+        
+        dayRecord.totalAmount = totalAmount;
+        dayRecord.totalHours = totalHours;
+        dayRecord.avgPerHour = totalHours > 0 ? Math.round(totalAmount / totalHours) : 0;
+        
+        saveCalendarRecords();
+    }
+
+    function addShiftToDay(dateStr, shiftData) {
+        const dayRecord = getOrCreateDayRecord(dateStr);
+        const shift = {
+            id: Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+            startTime: shiftData.startTime,
+            endTime: shiftData.endTime,
+            city: shiftData.city,
+            transport: shiftData.transport,
+            stops15: parseInt(shiftData.stops15) || 0,
+            stops30: parseInt(shiftData.stops30) || 0,
+            extraPay: shiftData.extraPay || false,
+            comment: shiftData.comment || '',
+            company: shiftData.company || calendarCompany,
+            amount: 0,
+            hours: 0
+        };
+        
+        const result = calculateShiftAmount(shift, shiftData.city, shiftData.transport, shift.company);
+        shift.amount = result.amount;
+        shift.hours = result.hours;
+        
+        dayRecord.shifts.push(shift);
+        updateDayTotals(dateStr);
+        saveCalendarRecords();
+        return shift;
+    }
+
+    function deleteShiftFromDay(dateStr, shiftId) {
+        const dayRecord = getDayRecord(dateStr);
+        if (!dayRecord) return false;
+        
+        dayRecord.shifts = dayRecord.shifts.filter(s => s.id !== shiftId);
+        updateDayTotals(dateStr);
+        saveCalendarRecords();
+        return true;
+    }
+
+    function updateShift(dateStr, shiftId, newData) {
+        const dayRecord = getDayRecord(dateStr);
+        if (!dayRecord) return false;
+        
+        const shiftIndex = dayRecord.shifts.findIndex(s => s.id === shiftId);
+        if (shiftIndex === -1) return false;
+        
+        const shift = dayRecord.shifts[shiftIndex];
+        Object.assign(shift, newData);
+        
+        const result = calculateShiftAmount(shift, shift.city, shift.transport, shift.company);
+        shift.amount = result.amount;
+        shift.hours = result.hours;
+        
+        updateDayTotals(dateStr);
+        saveCalendarRecords();
+        return true;
+    }
+
+    function deleteDay(dateStr) {
+        if (calendarState.records[dateStr]) {
+            delete calendarState.records[dateStr];
+            saveCalendarRecords();
+            return true;
+        }
+        return false;
+    }
+
+    function formatDate(date) {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return y + '-' + m + '-' + d;
+    }
+
+    function formatDateDisplay(dateStr) {
+        const parts = dateStr.split('-');
+        const monthNames = ['Января', 'Февраля', 'Марта', 'Апреля', 'Мая', 'Июня', 
+                            'Июля', 'Августа', 'Сентября', 'Октября', 'Ноября', 'Декабря'];
+        const day = parseInt(parts[2]);
+        const month = parseInt(parts[1]) - 1;
+        const year = parseInt(parts[0]);
+        const weekdays = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+        const dateObj = new Date(year, month, day);
+        return day + ' ' + monthNames[month] + ' ' + year + ', ' + weekdays[dateObj.getDay()];
+    }
+
+    function formatTime(timeStr) {
+        return timeStr.substring(0, 5);
+    }
+
+    function renderCalendar() {
+        const grid = document.getElementById('calendarGrid');
+        const monthYear = document.getElementById('currentMonthYear');
+        const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 
+                            'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+        
+        monthYear.textContent = monthNames[calendarState.currentMonth] + ' ' + calendarState.currentYear;
+        
+        const weekdays = grid.querySelectorAll('.weekday');
+        grid.innerHTML = '';
+        weekdays.forEach(wd => grid.appendChild(wd));
+        
+        const firstDay = new Date(calendarState.currentYear, calendarState.currentMonth, 1);
+        const lastDay = new Date(calendarState.currentYear, calendarState.currentMonth + 1, 0);
+        const today = new Date();
+        const todayStr = formatDate(today);
+        
+        let offset = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1;
+        
+        for (let i = 0; i < offset; i++) {
+            const empty = document.createElement('div');
+            empty.className = 'calendar-day empty';
+            grid.appendChild(empty);
+        }
+        
+        for (let d = 1; d <= lastDay.getDate(); d++) {
+            const day = document.createElement('div');
+            day.className = 'calendar-day';
+            day.textContent = d;
+            
+            const dateObj = new Date(calendarState.currentYear, calendarState.currentMonth, d);
+            const dateStr = formatDate(dateObj);
+            
+            const dayRecord = getDayRecord(dateStr);
+            if (dayRecord && dayRecord.shifts.length > 0) {
+                day.classList.add('has-record');
+            }
+            
+            if (dateStr === todayStr) {
+                day.classList.add('today');
+            }
+            
+            if (dateStr === calendarState.selectedDate) {
+                day.classList.add('selected');
+            }
+            
+            day.addEventListener('click', () => {
+                selectDay(dateStr);
+            });
+            
+            grid.appendChild(day);
+        }
+        
+        updateStats();
+    }
+
+    function updateStats() {
+        const month = calendarState.currentMonth;
+        const year = calendarState.currentYear;
+        let totalIncome = 0;
+        let totalDays = 0;
+        let bestDay = 0;
+        
+        for (const [dateStr, record] of Object.entries(calendarState.records)) {
+            const parts = dateStr.split('-');
+            const recordYear = parseInt(parts[0]);
+            const recordMonth = parseInt(parts[1]) - 1;
+            
+            if (recordYear === year && recordMonth === month) {
+                totalIncome += record.totalAmount || 0;
+                totalDays++;
+                if (record.totalAmount > bestDay) {
+                    bestDay = record.totalAmount;
+                }
+            }
+        }
+        
+        const avgIncome = totalDays > 0 ? Math.round(totalIncome / totalDays) : 0;
+        
+        document.getElementById('totalIncome').textContent = totalIncome.toLocaleString() + ' ₽';
+        document.getElementById('totalDays').textContent = totalDays;
+        document.getElementById('avgIncome').textContent = avgIncome.toLocaleString() + ' ₽';
+        document.getElementById('bestDay').textContent = bestDay.toLocaleString() + ' ₽';
+    }
+
+    function selectDay(dateStr) {
+        calendarState.selectedDate = dateStr;
+        renderCalendar();
+        openDayPanel(dateStr);
+    }
+
+    function openDayPanel(dateStr) {
+        const panel = document.getElementById('dayPanel');
+        const overlay = document.getElementById('panelOverlay');
+        const wrapper = document.querySelector('.calendar-wrapper');
+        const body = document.getElementById('panelBody');
+        
+        document.getElementById('panelDate').textContent = formatDateDisplay(dateStr);
+        
+        const dayRecord = getDayRecord(dateStr);
+        const hasRecord = dayRecord && dayRecord.shifts.length > 0;
+        
+        let html = '';
+        
+        if (hasRecord) {
+            html += `
+                <div class="day-stats">
+                    <div class="stat-row">
+                        <span class="label">💰 Доход</span>
+                        <span class="value">${dayRecord.totalAmount.toLocaleString()} ₽</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="label">🕐 Часов</span>
+                        <span class="value">${dayRecord.totalHours.toFixed(1)} ч</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="label">📊 Средний в час</span>
+                        <span class="value">${dayRecord.avgPerHour.toLocaleString()} ₽/ч</span>
+                    </div>
+                    <div class="stat-row">
+                        <span class="label">📋 Смен</span>
+                        <span class="value">${dayRecord.shifts.length}</span>
+                    </div>
+                </div>
+            `;
+            
+            html += `<div class="shift-list">`;
+            dayRecord.shifts.forEach((shift, index) => {
+                html += `
+                    <div class="shift-item">
+                        <div class="shift-info">
+                            <span class="shift-time">🔄 Смена #${index + 1} (${formatTime(shift.startTime)} - ${formatTime(shift.endTime)})</span>
+                            <span class="shift-details">
+                                ${shift.city} · ${shift.transport} · 
+                                ${shift.stops15 || 0}×15мин · ${shift.stops30 || 0}×30мин
+                                ${shift.extraPay ? ' · ☁️ доплата' : ''}
+                                ${shift.comment ? ' · ' + shift.comment : ''}
+                                ${shift.company ? ' · 🏢 ' + shift.company : ''}
+                            </span>
+                        </div>
+                        <div class="shift-amount">${shift.amount.toLocaleString()} ₽</div>
+                    </div>
+                    <div style="display:flex;gap:6px;margin-top:-6px;margin-bottom:6px;padding-left:14px;">
+                        <button class="btn-edit-shift" onclick="openEditShift('${dateStr}', '${shift.id}')">✏️</button>
+                        <button class="btn-delete-shift" onclick="deleteShift('${dateStr}', '${shift.id}')">🗑</button>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+            
+            html += `
+                <div class="panel-actions">
+                    <button class="btn-add-shift" onclick="openAddShift('${dateStr}')">➕ Добавить смену</button>
+                    <button class="btn-delete-day" onclick="deleteFullDay('${dateStr}')">🗑 Удалить все</button>
+                </div>
+            `;
+        } else {
+            html += `
+                <div style="text-align:center;padding:40px 0;color:var(--text-secondary);">
+                    <div style="font-size:48px;margin-bottom:12px;">📭</div>
+                    <p style="font-size:16px;">Нет записей за этот день</p>
+                </div>
+                <div class="panel-actions">
+                    <button class="btn-add-shift" onclick="openAddShift('${dateStr}')">➕ Добавить смену</button>
+                </div>
+            `;
+        }
+        
+        body.innerHTML = html;
+        
+        panel.classList.add('open');
+        overlay.classList.add('active');
+        wrapper.classList.add('shifted');
+    }
+
+    function closeDayPanel() {
+        document.getElementById('dayPanel').classList.remove('open');
+        document.getElementById('panelOverlay').classList.remove('active');
+        document.querySelector('.calendar-wrapper').classList.remove('shifted');
+        calendarState.selectedDate = null;
+    }
+
+    function openAddShift(dateStr) {
+        openShiftModal(dateStr, null);
+    }
+
+    function openEditShift(dateStr, shiftId) {
+        openShiftModal(dateStr, shiftId);
+    }
+
+    function openShiftModal(dateStr, shiftId) {
+        const modal = document.getElementById('editModal');
+        const body = document.getElementById('modalBody');
+        const title = document.getElementById('modalTitle');
+        
+        const isEdit = shiftId !== null;
+        title.textContent = isEdit ? '✏️ Редактирование смены' : '➕ Новая смена';
+        
+        let shift = null;
+        let dayRecord = getDayRecord(dateStr);
+        
+        if (isEdit && dayRecord) {
+            shift = dayRecord.shifts.find(s => s.id === shiftId);
+        }
+        
+        const cityOptions = getCityOptions();
+        const transportOptions = getTransportOptions(currentCompany, selectedCityKey);
+        
+        let formHtml = `
+            <form id="shiftForm" onsubmit="saveShift(event)">
+                <input type="hidden" id="shiftDate" value="${dateStr}">
+                <input type="hidden" id="shiftId" value="${shiftId || ''}">
+                
+                <div class="modal-shift-form">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>🕐 Начало</label>
+                            <input type="time" id="shiftStart" value="${shift ? shift.startTime : '09:00'}">
+                        </div>
+                        <div class="form-group">
+                            <label>🕐 Конец</label>
+                            <input type="time" id="shiftEnd" value="${shift ? shift.endTime : '17:00'}">
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>📍 Город</label>
+                            <select id="shiftCity">
+                                ${cityOptions.map(c => `<option value="${c.value}" ${shift && shift.city === c.value ? 'selected' : ''}>${c.label}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>🚲 Тип доставки</label>
+                            <select id="shiftTransport">
+                                ${transportOptions.map(t => `<option value="${t.value}" ${shift && shift.transport === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>🏢 Компания</label>
+                            <select id="shiftCompany">
+                                <option value="partner" ${shift && shift.company === 'partner' ? 'selected' : ''}>🚀 Партнер</option>
+                                <option value="sber" ${shift && shift.company === 'sber' ? 'selected' : ''}>🏦 Сбер</option>
+                                <option value="other" ${shift && shift.company === 'other' ? 'selected' : ''}>⚙️ Другое</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>⏸ Стопы 15 мин</label>
+                            <input type="number" id="shiftStops15" value="${shift ? shift.stops15 : 0}" min="0" step="1">
+                        </div>
+                        <div class="form-group">
+                            <label>⏸ Стопы 30 мин</label>
+                            <input type="number" id="shiftStops30" value="${shift ? shift.stops30 : 0}" min="0" step="1">
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" id="shiftExtraPay" ${shift && shift.extraPay ? 'checked' : ''}>
+                            ☁️ Доплата за погоду
+                        </label>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>📝 Комментарий</label>
+                        <input type="text" id="shiftComment" value="${shift ? shift.comment || '' : ''}" placeholder="Комментарий к смене">
+                    </div>
+                    
+                    <div class="shift-preview" id="shiftPreview">💰 Предварительный расчет: 0 ₽</div>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="submit" class="btn-save-shift">💾 Сохранить</button>
+                    ${isEdit ? `<button type="button" class="btn-delete-shift-modal" onclick="deleteShiftFromModal('${dateStr}', '${shiftId}')">🗑 Удалить</button>` : ''}
+                </div>
+            </form>
+        `;
+        
+        body.innerHTML = formHtml;
+        
+        ['shiftStart', 'shiftEnd', 'shiftCity', 'shiftTransport', 'shiftCompany', 'shiftStops15', 'shiftStops30', 'shiftExtraPay'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                el.addEventListener('change', updateShiftPreview);
+                el.addEventListener('input', updateShiftPreview);
+            }
+        });
+        
+        modal.classList.add('active');
+        setTimeout(updateShiftPreview, 100);
+    }
+
+    function updateShiftPreview() {
+        const start = document.getElementById('shiftStart').value;
+        const end = document.getElementById('shiftEnd').value;
+        const city = document.getElementById('shiftCity').value;
+        const transport = document.getElementById('shiftTransport').value;
+        const company = document.getElementById('shiftCompany').value;
+        const stops15 = parseInt(document.getElementById('shiftStops15').value) || 0;
+        const stops30 = parseInt(document.getElementById('shiftStops30').value) || 0;
+        const extraPay = document.getElementById('shiftExtraPay').checked;
+        
+        if (!start || !end) {
+            document.getElementById('shiftPreview').textContent = '💰 Укажите время';
+            return;
+        }
+        
+        const shiftData = {
+            startTime: start,
+            endTime: end,
+            city: city,
+            transport: transport,
+            company: company,
+            stops15: stops15,
+            stops30: stops30,
+            extraPay: extraPay
+        };
+        
+        const result = calculateShiftAmount(shiftData, city, transport, company);
+        document.getElementById('shiftPreview').textContent = '💰 Предварительный расчет: ' + result.amount.toLocaleString() + ' ₽ (' + result.hours.toFixed(1) + 'ч)';
+    }
+
+    function saveShift(event) {
+        event.preventDefault();
+        
+        const dateStr = document.getElementById('shiftDate').value;
+        const shiftId = document.getElementById('shiftId').value;
+        const startTime = document.getElementById('shiftStart').value;
+        const endTime = document.getElementById('shiftEnd').value;
+        const city = document.getElementById('shiftCity').value;
+        const transport = document.getElementById('shiftTransport').value;
+        const company = document.getElementById('shiftCompany').value;
+        const stops15 = parseInt(document.getElementById('shiftStops15').value) || 0;
+        const stops30 = parseInt(document.getElementById('shiftStops30').value) || 0;
+        const extraPay = document.getElementById('shiftExtraPay').checked;
+        const comment = document.getElementById('shiftComment').value;
+        
+        if (!startTime || !endTime) {
+            alert('Пожалуйста, укажите время начала и окончания смены');
+            return;
+        }
+        
+        const shiftData = {
+            startTime: startTime,
+            endTime: endTime,
+            city: city,
+            transport: transport,
+            company: company,
+            stops15: stops15,
+            stops30: stops30,
+            extraPay: extraPay,
+            comment: comment
+        };
+        
+        if (shiftId) {
+            updateShift(dateStr, shiftId, shiftData);
+        } else {
+            addShiftToDay(dateStr, shiftData);
+        }
+        
+        closeModal();
+        openDayPanel(dateStr);
+        renderCalendar();
+    }
+
+    function deleteShift(dateStr, shiftId) {
+        if (confirm('Удалить эту смену?')) {
+            deleteShiftFromDay(dateStr, shiftId);
+            openDayPanel(dateStr);
+            renderCalendar();
+        }
+    }
+
+    function deleteShiftFromModal(dateStr, shiftId) {
+        if (confirm('Удалить эту смену?')) {
+            deleteShiftFromDay(dateStr, shiftId);
+            closeModal();
+            openDayPanel(dateStr);
+            renderCalendar();
+        }
+    }
+
+    function deleteFullDay(dateStr) {
+        if (confirm('Удалить все записи за этот день?')) {
+            deleteDay(dateStr);
+            closeDayPanel();
+            renderCalendar();
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('editModal').classList.remove('active');
+    }
+
+    function getCityOptions() {
+        const tariffData = currentCompany === 'partner' ? samokatTariffs : sberTariffs;
+        return Object.entries(tariffData).map(([key, city]) => ({
+            value: key,
+            label: city.name
+        }));
+    }
+
+    function getTransportOptions(company, cityKey) {
+        const available = getAvailableTransports(company, cityKey);
+        const l = languages[currentLang];
+        return available.map(type => ({
+            value: type,
+            label: l[type] || type
+        }));
+    }
+
+    function initCalendar() {
+        loadCalendarRecords();
+        
+        // Обработчики для кнопок компании в календаре
+        document.querySelectorAll('.cal-company-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.cal-company-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                calendarCompany = this.dataset.company;
+                renderCalendar();
+            });
+        });
+        
+        document.getElementById('prevMonth').addEventListener('click', () => {
+            calendarState.currentMonth--;
+            if (calendarState.currentMonth < 0) {
+                calendarState.currentMonth = 11;
+                calendarState.currentYear--;
+            }
+            renderCalendar();
+        });
+        
+        document.getElementById('nextMonth').addEventListener('click', () => {
+            calendarState.currentMonth++;
+            if (calendarState.currentMonth > 11) {
+                calendarState.currentMonth = 0;
+                calendarState.currentYear++;
+            }
+            renderCalendar();
+        });
+        
+        document.getElementById('closePanel').addEventListener('click', closeDayPanel);
+        document.getElementById('panelOverlay').addEventListener('click', closeDayPanel);
+        
+        document.getElementById('closeModal').addEventListener('click', closeModal);
+        document.getElementById('editModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeModal();
+        });
+        
+        renderCalendar();
+    }
+
+    // ============================================================
+    // ============ ДЕЛАЕМ ФУНКЦИИ ГЛОБАЛЬНЫМИ ============
+    // ============================================================
+    window.openAddShift = openAddShift;
+    window.openEditShift = openEditShift;
+    window.deleteShift = deleteShift;
+    window.deleteShiftFromModal = deleteShiftFromModal;
+    window.deleteFullDay = deleteFullDay;
+    window.saveShift = saveShift;
+    window.closeModal = closeModal;
+    window.updateShiftPreview = updateShiftPreview;
+
+    // ============================================================
     // ============ ИНИЦИАЛИЗАЦИЯ ============
+    // ============================================================
+
     function init() {
         setupDropdowns();
         populateCities();
@@ -830,6 +1498,26 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('extraPay').checked = false;
             calculate();
         });
+
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                const tab = btn.dataset.tab;
+                document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+                
+                if (tab === 'calculator') {
+                    document.getElementById('tabCalculator').classList.add('active');
+                } else if (tab === 'calendar') {
+                    document.getElementById('tabCalendar').classList.add('active');
+                    closeDayPanel();
+                    renderCalendar();
+                }
+            });
+        });
+
+        initCalendar();
     }
 
     init();
